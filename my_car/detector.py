@@ -176,21 +176,24 @@ COCO_CLASSES = [
     "scissors", "teddy bear", "hair drier", "toothbrush",
 ]
 
-_MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
-_YOLO_ONNX   = os.path.join(_MODELS_DIR, "yolov4-tiny.onnx")
+_MODELS_DIR  = os.path.join(os.path.dirname(__file__), "models")
+_YOLO_CFG    = os.path.join(_MODELS_DIR, "yolov4-tiny.cfg")
+_YOLO_WEIGHTS = os.path.join(_MODELS_DIR, "yolov4-tiny.weights")
 
 
 class YoloDetector:
     """
-    YOLOv4-tiny (ONNX) + cv2.dnn による汎用物体検出。完全ローカル動作。
+    YOLOv4-tiny (darknet .cfg + .weights) + cv2.dnn による汎用物体検出。完全ローカル動作。
 
     初回実行前に download_models.py でモデルを取得してください:
         python download_models.py
 
     Parameters
     ----------
-    model_path : str
-        ONNX モデルのパス（省略時は models/yolov4-tiny.onnx）
+    cfg_path : str
+        cfg ファイルのパス（省略時は models/yolov4-tiny.cfg）
+    weights_path : str
+        weights ファイルのパス（省略時は models/yolov4-tiny.weights）
     conf_threshold : float
         信頼度しきい値
     nms_threshold : float
@@ -203,18 +206,20 @@ class YoloDetector:
 
     def __init__(
         self,
-        model_path: str = _YOLO_ONNX,
+        cfg_path: str = _YOLO_CFG,
+        weights_path: str = _YOLO_WEIGHTS,
         conf_threshold: float = 0.4,
         nms_threshold: float = 0.4,
         input_size: int = 416,
         filter_classes: list[str] | None = None,
     ) -> None:
-        if not os.path.isfile(model_path):
-            raise FileNotFoundError(
-                f"ONNX モデルが見つかりません: {model_path}\n"
-                "  → python my_car/download_models.py を実行してモデルを取得してください。"
-            )
-        self.net = cv2.dnn.readNetFromONNX(model_path)
+        for path, label in [(cfg_path, "cfg"), (weights_path, "weights")]:
+            if not os.path.isfile(path):
+                raise FileNotFoundError(
+                    f"YOLOv4-tiny の {label} ファイルが見つかりません: {path}\n"
+                    "  → python my_car/download_models.py を実行してモデルを取得してください。"
+                )
+        self.net = cv2.dnn.readNetFromDarknet(cfg_path, weights_path)
         self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
         self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
         self.conf_threshold = conf_threshold
@@ -226,7 +231,7 @@ class YoloDetector:
                 i for i, c in enumerate(COCO_CLASSES)
                 if c in filter_classes
             }
-        print(f"[YoloDetector] Loaded: {os.path.basename(model_path)}")
+        print(f"[YoloDetector] Loaded: {os.path.basename(cfg_path)} + {os.path.basename(weights_path)}")
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
         h, w = frame.shape[:2]
