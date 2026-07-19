@@ -66,11 +66,47 @@ python demo_motor.py --host 192.168.1.100 --speed 1500
 
 ---
 
+## ② カメラ取得デモ
+
+**ファイル:**
+- [`camera_client.py`](camera_client.py) — TCP:8000 ストリーム受信クライアント
+- [`demo_camera.py`](demo_camera.py) — OpenCV ウィンドウライブ表示デモ
+
+### ストリームプロトコル
+
+サーバーはポート **8000** で TCP 接続を待ち受けます。
+[`Code/Server/main.py`](../Code/Server/main.py) の `threading_video_send` が以下のフォーマットで送信します：
+
+```
+[4 bytes LE uint32 = JPEG バイト長] + [JPEG bytes]  ← これを繰り返す
+```
+
+### 実行方法
+
+```bash
+# 基本（OpenCV ウィンドウ表示）
+python demo_camera.py --host 192.168.1.100
+
+# 10 秒間録画して自動終了
+python demo_camera.py --host 192.168.1.100 --duration 10
+
+# フレームを ./frames/ に連番 JPEG で保存（ヘッドレス）
+python demo_camera.py --host 192.168.1.100 --save-dir ./frames --no-display
+```
+
+### キー操作（表示モード）
+
+| キー | 動作 |
+|------|------|
+| `s` | スナップショットを `snapshot_XXXX.jpg` で保存 |
+| `q` / ESC | 終了 |
+
+---
+
 ## 今後の予定
 
 | ステップ | 内容 |
 |----------|------|
-| ② カメラ取得 | TCP ポート 8000 からの映像受信 |
 | ③ OpenCV 物体検出 | YOLO / Haar Cascade による検出 |
 | ④ 自律走行 | 検出結果に基づくモーター制御 |
 | ⑤ Kafka 化 | コマンド・センサーデータの Kafka 配信 |
