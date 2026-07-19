@@ -178,6 +178,21 @@ class mywindow(QMainWindow, Ui_Client):
         self.Btn_DiaDRight.pressed.connect(self.on_btn_Diad_right)
         self.Btn_DiaDRight.released.connect(self.on_btn_Stop)
 
+        movement_buttons = [
+            self.Btn_ForWard,
+            self.Btn_BackWard,
+            self.Btn_Turn_Left,
+            self.Btn_Turn_Right,
+            self.Btn_Move_Left,
+            self.Btn_Move_Right,
+            self.Btn_DiaLeft,
+            self.Btn_DiaRight,
+            self.Btn_DiaDLeft,
+            self.Btn_DiaDRight,
+        ]
+        for button in movement_buttons:
+            button.setAutoRepeat(False)
+
         self.Btn_Video.clicked.connect(self.on_btn_video)
 
         self.Btn_Up.clicked.connect(self.on_btn_Up)
@@ -229,6 +244,19 @@ class mywindow(QMainWindow, Ui_Client):
 
     def mouseReleaseEvent(self, QMouseEvent):
         self.m_drag = False
+        self.on_btn_Stop()
+
+    def leaveEvent(self, event):
+        self.on_btn_Stop()
+        super().leaveEvent(event)
+
+    def focusOutEvent(self, event):
+        self.on_btn_Stop()
+        super().focusOutEvent(event)
+
+    def closeEvent(self, event):
+        self.on_btn_Stop()
+        event.accept()
 
     def keyPressEvent(self, event):
         if (event.key() == Qt.Key_Up):
