@@ -162,10 +162,77 @@ python demo_detection.py --host 192.168.1.100 --backend yolo --log detect.csv
 
 ---
 
+## ④ 自律走行
+
+**ファイル:**
+- [`steering.py`](steering.py) — 検出結果 → モーター duty を計算するコントローラー
+- [`demo_autonomous.py`](demo_autonomous.py) — カメラ・検出・操舵・モーターを統合したメインループ
+
+### 制御ロジック
+
+```
+CameraClient (TCP:8000)
+    ↓ frame (numpy BGR)
+Detector (haar / yolo)
+    ↓ list[Detection]
+SteeringController
+    ↓ (fl, bl, fr, br) duty
+MotorClient (TCP:5000)
+```
+
+| 条件 | 動作 |
+|------|------|
+| ターゲット未検出（2 秒以上） | 停止 |
+| bbox 面積 < 6 % | 前進（ターゲットに近づく） |
+| bbox 面積 > 20 % | 後退（距離を取る） |
+| 面積 6–20 %（適正距離） | 旋回のみ（左右中央に寄せる） |
+| 横偏差 < デッドゾーン | 直進扱い |
+
+### 実行方法
+
+```bash
+# [方法A] Haar Cascade で人を追跡（モデル不要）
+python demo_autonomous.py --host 192.168.1.100
+
+# [方法B] YOLOv4-tiny で人を追跡（事前に download_models.py）
+python demo_autonomous.py --host 192.168.1.100 --backend yolo
+
+# 猫を追跡（YOLO）
+python demo_autonomous.py --host 192.168.1.100 --backend yolo --target cat
+
+# 速度を落とす（デフォルト: 1200）
+python demo_autonomous.py --host 192.168.1.100 --speed 800
+
+# 30 秒後に自動終了
+python demo_autonomous.py --host 192.168.1.100 --duration 30
+
+# ヘッドレス（GUI なし）
+python demo_autonomous.py --host 192.168.1.100 --no-display
+```
+
+### キー操作（表示モード）
+
+| キー | 動作 |
+|------|------|
+| `p` | 一時停止 / 再開（モーター停止） |
+| `s` | スナップショットを `auto_snap_XXXX.jpg` で保存 |
+| `q` / ESC | 終了 |
+
+### チューニングパラメータ
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--speed` | 1200 | ベース duty（0–4095）。大きいほど速い |
+| `--steer-gain` | 1.2 | 横方向 P ゲイン。大きいほど鋭く曲がる |
+| `--area-min` | 0.06 | これ以下の面積比で前進 |
+| `--area-max` | 0.20 | これ以上の面積比で後退 |
+| `--conf` | 0.4 | YOLO 信頼度しきい値 |
+
+---
+
 ## 今後の予定
 
 | ステップ | 内容 |
 |----------|------|
-| ④ 自律走行 | 検出結果に基づくモーター制御 |
 | ⑤ Kafka 化 | コマンド・センサーデータの Kafka 配信 |
 | ⑥ World Model | 状態推定・経路計画の追加 |
