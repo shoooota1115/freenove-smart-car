@@ -103,11 +103,69 @@ python demo_camera.py --host 192.168.1.100 --save-dir ./frames --no-display
 
 ---
 
+## ③ OpenCV 物体検出デモ
+
+**ファイル:**
+- [`detector.py`](detector.py) — 検出器クラス（HaarCascade / YOLOv4-tiny）
+- [`demo_detection.py`](demo_detection.py) — カメラストリームへの検出枠重ね描き
+- [`download_models.py`](download_models.py) — YOLOv4-tiny ONNX モデル取得スクリプト
+
+### クラウドAI / LLM は必要か？
+
+**不要です。** 使用する技術はすべてローカル処理です。
+
+| バックエンド | 技術 | モデルサイズ | クラウド |
+|---|---|---|---|
+| `haar` | OpenCV 内蔵 Haar Cascade XML | 0 MB（内蔵済み） | 不要 |
+| `yolo` | YOLOv4-tiny + `cv2.dnn` (ONNX) | ~23 MB | 不要 |
+
+クラウドAIが必要になるのは ⑥ World Model で大規模な事前学習モデルを使う場合ですが、
+それも ONNX エクスポートすれば Pi 上でローカル推論が可能です。
+
+### 検出バックエンドの選び方
+
+```
+haar → 追加ダウンロード不要、高速、顔/体など特定形状の検出に強い
+yolo → 80クラス汎用検出、日常物体（人・車・椅子・猫など）をまとめて検出
+```
+
+### 実行方法
+
+```bash
+# [方法A] Haar Cascade（モデル不要、即実行）
+python demo_detection.py --host 192.168.1.100
+python demo_detection.py --host 192.168.1.100 --backend haar --target body
+
+# [方法B] YOLOv4-tiny（初回のみモデル取得が必要）
+python download_models.py                    # ~23 MB ダウンロード
+python demo_detection.py --host 192.168.1.100 --backend yolo
+
+# 人・車だけ検出
+python demo_detection.py --host 192.168.1.100 --backend yolo --filter person car
+
+# 検出ログを CSV に保存
+python demo_detection.py --host 192.168.1.100 --backend yolo --log detect.csv
+```
+
+### Haar Cascade ターゲット一覧
+
+| `--target` | 検出対象 |
+|---|---|
+| `face`（デフォルト）| 正面顔 |
+| `eye` | 目 |
+| `body` | 全身 |
+| `upperbody` | 上半身 |
+
+### YOLOv4-tiny 主要検出クラス（80クラス COCO）
+
+`person` `car` `bicycle` `cat` `dog` `chair` `bottle` `laptop` `cell phone` など
+
+---
+
 ## 今後の予定
 
 | ステップ | 内容 |
 |----------|------|
-| ③ OpenCV 物体検出 | YOLO / Haar Cascade による検出 |
 | ④ 自律走行 | 検出結果に基づくモーター制御 |
 | ⑤ Kafka 化 | コマンド・センサーデータの Kafka 配信 |
 | ⑥ World Model | 状態推定・経路計画の追加 |
