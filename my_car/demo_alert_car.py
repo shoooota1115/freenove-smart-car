@@ -57,42 +57,33 @@ from pathlib import Path
 _SERVER_DIR = Path(__file__).resolve().parent.parent / "Code" / "Server"
 sys.path.insert(0, str(_SERVER_DIR))
 
-# センサーインスタンス（初回呼び出し時に遅延初期化）
-_ultrasonic = None
+# ADC インスタンス（初回呼び出し時に遅延初期化）
 _adc = None
 
 
-def _get_ultrasonic():
-    """Ultrasonic インスタンスをシングルトンで返す（ラズパイ専用）。"""
-    global _ultrasonic
-    if _ultrasonic is None:
-        from ultrasonic import Ultrasonic
-        _ultrasonic = Ultrasonic()
-    return _ultrasonic
-
-
 def _get_adc():
-    """ADC インスタンスをシングルトンで返す（ラズパイ専用）。"""
+    """ADC インスタンスをシングルトンで返す（ラズパイ専用）。
+
+    parameter.py が params.json をカレントディレクトリから探すため、
+    インポート前後に一時的に Code/Server/ へ chdir する。
+    """
     global _adc
     if _adc is None:
-        from adc import ADC
-        _adc = ADC()
+        _prev_dir = os.getcwd()
+        try:
+            os.chdir(str(_SERVER_DIR))
+            from adc import ADC
+            _adc = ADC()
+        finally:
+            os.chdir(_prev_dir)
     return _adc
-
-
-def _read_ultrasonic_cm() -> float | None:
-    """超音波センサーから距離 (cm) を直接読み取る。"""
-    try:
-        return _get_ultrasonic().get_distance()
-    except Exception as e:
-        print(f"[Sensor] ultrasonic read failed: {type(e).__name__}: {e}")
-        return None
 
 
 def _read_battery_voltage() -> float | None:
     """電池電圧 (V) を ADC から直接読み取る。
 
     channel 2 の値に PCB バージョンに応じた係数（3 or 2）を掛ける。
+    超音波は Code/Server/main.py が GPIO を専有しているため取得しない。
     """
     try:
         adc = _get_adc()
@@ -183,7 +174,8 @@ def run(host: str, interval: float, dry_run: bool) -> None:
             ultrasonic = _dummy_ultrasonic(seq)
             battery    = _dummy_battery(seq)
         else:
-            ultrasonic = _read_ultrasonic_cm()
+            # 超音波は Code/Server/main.py が GPIO を専有しているため取得不可
+            ultrasonic = None
             battery    = _read_battery_voltage()
 
         status = "skip" if dry_run else "sent"
