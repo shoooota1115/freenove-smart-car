@@ -52,8 +52,10 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 # ------------------------------------------------------------------ #
 
 # Code/Server のハードウェアモジュールを直接インポートするためパスを追加
-_SERVER_DIR = os.path.join(os.path.dirname(__file__), "..", "Code", "Server")
-sys.path.insert(0, os.path.abspath(_SERVER_DIR))
+# __file__ が相対パスになる場合に備えて resolve() で絶対パスに変換する
+from pathlib import Path
+_SERVER_DIR = Path(__file__).resolve().parent.parent / "Code" / "Server"
+sys.path.insert(0, str(_SERVER_DIR))
 
 # センサーインスタンス（初回呼び出し時に遅延初期化）
 _ultrasonic = None
@@ -82,7 +84,8 @@ def _read_ultrasonic_cm() -> float | None:
     """超音波センサーから距離 (cm) を直接読み取る。"""
     try:
         return _get_ultrasonic().get_distance()
-    except Exception:
+    except Exception as e:
+        print(f"[Sensor] ultrasonic read failed: {type(e).__name__}: {e}")
         return None
 
 
@@ -95,7 +98,8 @@ def _read_battery_voltage() -> float | None:
         adc = _get_adc()
         multiplier = 3 if adc.pcb_version == 1 else 2
         return round(adc.read_adc(2) * multiplier, 2)
-    except Exception:
+    except Exception as e:
+        print(f"[Sensor] battery read failed: {type(e).__name__}: {e}")
         return None
 
 
