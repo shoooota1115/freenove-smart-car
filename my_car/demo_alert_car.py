@@ -51,43 +51,50 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 # センサー読み取り（ラズパイ実機用）                                    #
 # ------------------------------------------------------------------ #
 
-def _read_ultrasonic_cm(host: str) -> float | None:
-    """超音波センサーから距離 (cm) を読み取る。
+# Code/Server のハードウェアモジュールを直接インポートするためパスを追加
+_SERVER_DIR = os.path.join(os.path.dirname(__file__), "..", "Code", "Server")
+sys.path.insert(0, os.path.abspath(_SERVER_DIR))
 
-    Freenove サーバーへ CMD_SONIC コマンドを送って応答を受信する。
-    接続エラー時は None を返す。
-    """
-    import socket
+# センサーインスタンス（初回呼び出し時に遅延初期化）
+_ultrasonic = None
+_adc = None
+
+
+def _get_ultrasonic():
+    """Ultrasonic インスタンスをシングルトンで返す（ラズパイ専用）。"""
+    global _ultrasonic
+    if _ultrasonic is None:
+        from ultrasonic import Ultrasonic
+        _ultrasonic = Ultrasonic()
+    return _ultrasonic
+
+
+def _get_adc():
+    """ADC インスタンスをシングルトンで返す（ラズパイ専用）。"""
+    global _adc
+    if _adc is None:
+        from adc import ADC
+        _adc = ADC()
+    return _adc
+
+
+def _read_ultrasonic_cm() -> float | None:
+    """超音波センサーから距離 (cm) を直接読み取る。"""
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(2.0)
-            s.connect((host, 5000))
-            s.sendall(b"CMD_SONIC#\n")
-            data = s.recv(64).decode("utf-8", errors="ignore").strip()
-            # 応答フォーマット: "CMD_SONIC#<value>" or "<value>"
-            parts = data.split("#")
-            val = float(parts[-1])
-            return round(val, 1)
+        return _get_ultrasonic().get_distance()
     except Exception:
         return None
 
 
-def _read_battery_voltage(host: str) -> float | None:
-    """電池電圧 (V) を読み取る。
+def _read_battery_voltage() -> float | None:
+    """電池電圧 (V) を ADC から直接読み取る。
 
-    Freenove サーバーへ CMD_POWER コマンドを送って応答を受信する。
-    接続エラー時は None を返す。
+    channel 2 の値に PCB バージョンに応じた係数（3 or 2）を掛ける。
     """
-    import socket
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(2.0)
-            s.connect((host, 5000))
-            s.sendall(b"CMD_POWER#\n")
-            data = s.recv(64).decode("utf-8", errors="ignore").strip()
-            parts = data.split("#")
-            val = float(parts[-1])
-            return round(val, 2)
+        adc = _get_adc()
+        multiplier = 3 if adc.pcb_version == 1 else 2
+        return round(adc.read_adc(2) * multiplier, 2)
     except Exception:
         return None
 
@@ -172,8 +179,8 @@ def run(host: str, interval: float, dry_run: bool) -> None:
             ultrasonic = _dummy_ultrasonic(seq)
             battery    = _dummy_battery(seq)
         else:
-            ultrasonic = _read_ultrasonic_cm(host)
-            battery    = _read_battery_voltage(host)
+            ultrasonic = _read_ultrasonic_cm()
+            battery    = _read_battery_voltage()
 
         status = "skip" if dry_run else "sent"
         ts = time.strftime("%H:%M:%S")
