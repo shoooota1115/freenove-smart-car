@@ -149,6 +149,49 @@ def build_telemetry_event(
 
 
 # ------------------------------------------------------------------
+# alerts スキーマ
+# ------------------------------------------------------------------
+
+# alert_type の定数
+ALERT_OBSTACLE   = "obstacle"
+ALERT_LOW_BATTERY = "low_battery"
+ALERT_CLEAR      = "clear"
+
+
+def build_alert_event(
+    vehicle_id: str,
+    alert_type: str,
+    sensor_value: float,
+    threshold: float,
+    message: str,
+) -> dict[str, Any]:
+    """freenove.alerts へ送信するペイロードを組み立てる。
+
+    Parameters
+    ----------
+    alert_type : str
+        "obstacle" | "low_battery" | "clear"
+    sensor_value : float
+        異常を検知したセンサーの実測値
+    threshold : float
+        判定に使用した閾値
+    message : str
+        人間可読なアラートメッセージ
+    """
+    return {
+        "schema_version": 1,
+        "event_id": _new_id(),
+        "alert_id": _new_id(),
+        "vehicle_id": vehicle_id,
+        "timestamp": _utc_now(),
+        "alert_type": alert_type,
+        "sensor_value": round(sensor_value, 2),
+        "threshold": round(threshold, 2),
+        "message": message,
+    }
+
+
+# ------------------------------------------------------------------
 # commands スキーマ（Consumer 側のバリデーション用）
 # ------------------------------------------------------------------
 
