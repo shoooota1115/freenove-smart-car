@@ -17,6 +17,7 @@ import time
 
 CMD_LED     = "CMD_LED"
 CMD_LED_MOD = "CMD_LED_MOD"
+CMD_SONIC   = "CMD_SONIC"
 INTERVAL    = "#"
 END         = "\n"
 
@@ -69,6 +70,40 @@ class LEDClient:
 
     def _send_raw(self, cmd: str) -> None:
         self._sock.sendall(cmd.encode("utf-8"))
+
+    # ------------------------------------------------------------------
+    # センサー読み取り
+    # ------------------------------------------------------------------
+
+    def read_ultrasonic_cm(self, wait: float = 0.6) -> float | None:
+        """超音波センサーの距離 (cm) をサーバー経由で取得する。
+
+        サーバーへ CMD_SONIC を送り、同じソケットで返ってくる
+        CMD_MODE#3#<値> を受け取って距離を返す。
+
+        サーバー側に 0.5 秒のレートリミットがあるため、
+        wait（デフォルト 0.6 秒）だけ待ってから recv する。
+
+        Parameters
+        ----------
+        wait : float
+            コマンド送信から recv までの待機秒数。
+        """
+        try:
+            self._send_raw(f"{CMD_SONIC}{END}")
+            time.sleep(wait)
+            # recv はノンブロッキングで試みる（タイムアウト付き）
+            self._sock.settimeout(1.0)
+            data = self._sock.recv(64).decode("utf-8", errors="ignore")
+            self._sock.settimeout(self.timeout)  # タイムアウトを元に戻す
+            # 応答フォーマット: "CMD_MODE#3#<distance>\n"
+            for line in data.strip().splitlines():
+                parts = line.split("#")
+                if len(parts) >= 3 and parts[0] == "CMD_MODE" and parts[1] == "3":
+                    return round(float(parts[2]), 1)
+        except Exception as e:
+            print(f"[LEDClient] ultrasonic read failed: {type(e).__name__}: {e}")
+        return None
 
     # ------------------------------------------------------------------
     # LED 制御

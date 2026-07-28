@@ -174,8 +174,9 @@ def run(host: str, interval: float, dry_run: bool) -> None:
             ultrasonic = _dummy_ultrasonic(seq)
             battery    = _dummy_battery(seq)
         else:
-            # 超音波は Code/Server/main.py が GPIO を専有しているため取得不可
-            ultrasonic = None
+            # 超音波は LEDClient の既存ソケット経由でサーバーから取得
+            # （main.py が GPIO を専有しているため直接読み取り不可）
+            ultrasonic = led.read_ultrasonic_cm()
             battery    = _read_battery_voltage()
 
         status = "skip" if dry_run else "sent"
