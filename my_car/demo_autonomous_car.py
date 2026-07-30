@@ -178,17 +178,8 @@ def run(host: str, interval: float, duration: float, dry_run: bool) -> None:
     signal.signal(signal.SIGINT, _sig_handler)
     signal.signal(signal.SIGTERM, _sig_handler)
 
-    # --- 自動停止タイマー ---
+    # --- 自動停止フラグ（メインループを止めるため Event を使う）---
     _stop_event = threading.Event()
-
-    def _auto_stop():
-        _stop_event.wait(timeout=duration)
-        if not _stop_event.is_set():
-            print(f"\n⏱  {duration:.0f}秒経過 — 自動停止します")
-            _shutdown(f"{duration:.0f}s タイムアウト")
-
-    timer_thread = threading.Thread(target=_auto_stop, daemon=True)
-    timer_thread.start()
 
     # --- テレメトリ送信ループ ---
     print(f"テレメトリ送信ループ開始（{duration:.0f}秒後に自動停止 / Ctrl+C で即停止）")
@@ -198,8 +189,14 @@ def run(host: str, interval: float, duration: float, dry_run: bool) -> None:
 
     seq = 0
     start = time.monotonic()
-    while True:
+    while not _stop_event.is_set():
         seq += 1
+        elapsed = time.monotonic() - start
+
+        # 自動停止チェック
+        if elapsed >= duration:
+            print(f"\n⏱  {duration:.0f}秒経過 — 自動停止します")
+            break
 
         if dry_run:
             ultrasonic = _dummy_ultrasonic(seq)
@@ -223,11 +220,12 @@ def run(host: str, interval: float, duration: float, dry_run: bool) -> None:
                 battery_voltage=battery,
             )
 
-        # read_ultrasonic_cm が 0.55s ブロックするため、
-        # 残り待機時間だけ sleep する
-        elapsed_in_loop = time.monotonic() - start - (seq - 1) * interval
+        # read_ultrasonic_cm が 0.55s ブロックするため、残り待機時間だけ sleep する
         wait = max(0.0, interval - 0.55) if not dry_run else interval
         time.sleep(wait)
+
+    # ループ終了後にシャットダウン
+    _shutdown("自動停止")
 
 
 # ------------------------------------------------------------------ #
