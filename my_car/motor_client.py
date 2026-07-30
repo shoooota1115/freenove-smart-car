@@ -8,12 +8,18 @@ Freenove 4WD Smart Car へ TCP 経由でモーター制御コマンドを送る�
         duty: -4095 ～ 4095
         左前(duty1), 左後(duty2), 右前(duty3), 右後(duty4)
         正値=前進方向, 負値=後退方向
+
+注意: サーバー（Code/Server/main.py）は max_clients=1 のため、
+      このクライアントが唯一の接続となる。超音波センサーの読み取りも
+      このソケット経由で行う（LEDClient とソケットを共有しない）。
 """
 
 import socket
 import time
+import threading
 
 CMD_MOTOR = "CMD_MOTOR"
+CMD_SONIC = "CMD_SONIC"
 INTERVAL  = "#"
 END       = "\n"
 
@@ -23,13 +29,18 @@ SPEED_SLOW = 1000
 
 
 class MotorClient:
-    """サーバーの TCP コマンドポート (5000) に接続してモーターを制御する。"""
+    """サーバーの TCP コマンドポート (5000) に接続してモーターと超音波センサーを制御する。
+
+    サーバーは max_clients=1 のため、このクライアントが唯一の接続となる。
+    超音波センサーの読み取りも同一ソケット経由で行う。
+    """
 
     def __init__(self, host: str, port: int = 5000, timeout: float = 5.0):
         self.host = host
         self.port = port
         self.timeout = timeout
         self._sock: socket.socket | None = None
+        self._recv_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # 接続管理
@@ -63,6 +74,32 @@ class MotorClient:
         """4 輪それぞれの duty を直接指定する。"""
         cmd = f"{CMD_MOTOR}{INTERVAL}{fl}{INTERVAL}{bl}{INTERVAL}{fr}{INTERVAL}{br}{END}"
         self._sock.sendall(cmd.encode("utf-8"))
+
+    # ------------------------------------------------------------------
+    # 超音波センサー読み取り
+    # ------------------------------------------------------------------
+
+    def read_ultrasonic_cm(self) -> float | None:
+        """超音波センサーの距離 (cm) を取得する。
+
+        サーバーへ CMD_SONIC を送り、返ってくる CMD_MODE#3#<値> を受け取る。
+        サーバー側に 0.5 秒のレートリミットがあるため、0.55 秒待ってから recv する。
+        排他ロックで並行呼び出しを防ぐ。
+        """
+        with self._recv_lock:
+            try:
+                self._sock.sendall(f"{CMD_SONIC}{END}".encode("utf-8"))
+                time.sleep(0.55)
+                self._sock.settimeout(1.0)
+                data = self._sock.recv(128).decode("utf-8", errors="ignore")
+                self._sock.settimeout(self.timeout)
+                for line in data.strip().splitlines():
+                    parts = line.split("#")
+                    if len(parts) >= 3 and parts[0] == "CMD_MODE" and parts[1] == "3":
+                        return round(float(parts[2]), 1)
+            except Exception as e:
+                print(f"[MotorClient] ultrasonic read failed: {type(e).__name__}: {e}")
+        return None
 
     # ------------------------------------------------------------------
     # 高レベル操作

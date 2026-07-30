@@ -4,34 +4,36 @@ demo_autonomous_car.py
 -----------------------
 Freenove 4WD Smart Car ⑦ 自律障害物回避デモ — 車載側（PC から接続）
 
-このスクリプトは PC 上で動かす「IoT デバイス側」コンポーネント。
+このスクリプトはラズパイ上（または PC から接続）で動かす「IoT デバイス側」。
 Raspberry Pi 上の Code/Server/main.py に TCP 接続し、センサー読み取りと
 モーター制御を行う。
 
+サーバー（Code/Server/main.py）は max_clients=1 のため、接続は MotorClient
+の1本のソケットのみを使う。超音波センサーの読み取りも同じソケット経由で行う
+（LEDClient との接続競合を避けるため LEDClient は使わない）。
+
 データフロー:
-    [超音波センサー] → TelemetryProducer → freenove.telemetry (Kafka)
-    freenove.commands (Kafka) → CommandConsumer → MotorClient → [モーター]
+    [超音波センサー] → MotorClient(TCP) → TelemetryProducer → freenove.telemetry
+    freenove.commands → CommandConsumer → MotorClient → [モーター]
 
 動作:
-    1. 超音波センサーを 0.5 秒ごとに Kafka へ送信（高頻度で衝突を早期検知）
+    1. 超音波センサーを --interval 秒ごとに Kafka へ送信
     2. サーバーからコマンドを受信してモーターを制御:
-        ▶  direction=forward → motor.forward(duty)  低速前進継続
-        ◀  direction=left   → motor.turn_left(duty)
-                               → duration_ms 後に motor.stop()
-                               → 停止して次のコマンドを待つ
+        ▶  direction=forward → motor.forward(duty)  低速前進
+        ◀  direction=left   → motor.turn_left(duty) → duration_ms 後に stop
+    3. --duration 秒後にモーターを自動停止して終了（デフォルト: 30 秒）
 
 速度変換:
     コマンドの speed（0–60 正規化）→ PWM duty: duty = speed * 4095 // 60
-    speed=20 → duty ≈ 1365（低速、衝突余裕を確保）
+    speed=20 → duty ≈ 1365
 
 使い方:
-    # .env に IBM Event Streams の接続情報を設定してから実行
     python my_car/demo_autonomous_car.py --host 192.168.1.24
 
-    # テレメトリ送信間隔を変更（デフォルト: 0.5 秒）
-    python my_car/demo_autonomous_car.py --host 192.168.1.24 --interval 0.3
+    # 自動停止時間を変更（デフォルト: 30 秒）
+    python my_car/demo_autonomous_car.py --host 192.168.1.24 --duration 60
 
-    # Kafka・モーター接続なしで動作確認（ダミー値 + ログ出力のみ）
+    # Kafka・モーター接続なしで動作確認
     python my_car/demo_autonomous_car.py --host 192.168.1.24 --dry-run
 """
 
@@ -50,17 +52,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-# Code/Server のハードウェアモジュールを直接インポートするためパスを追加
 from pathlib import Path
 _SERVER_DIR = Path(__file__).resolve().parent.parent / "Code" / "Server"
 sys.path.insert(0, str(_SERVER_DIR))
 
-# ADC インスタンス（初回呼び出し時に遅延初期化）
 _adc = None
 
 
 def _get_adc():
-    """ADC インスタンスをシングルトンで返す（ラズパイ専用）。"""
     global _adc
     if _adc is None:
         _prev_dir = os.getcwd()
@@ -74,7 +73,6 @@ def _get_adc():
 
 
 def _read_battery_voltage() -> float | None:
-    """電池電圧 (V) を ADC から読み取る。"""
     try:
         adc = _get_adc()
         multiplier = 3 if adc.pcb_version == 1 else 2
@@ -90,20 +88,11 @@ def _dummy_ultrasonic(seq: int) -> float:
 
 
 def _dummy_battery(seq: int) -> float:
-    """dry-run 用ダミー電池電圧（徐々に低下）。"""
     return round(max(7.0, 8.4 - seq * 0.01), 2)
 
 
-# ------------------------------------------------------------------ #
-# 速度変換                                                             #
-# ------------------------------------------------------------------ #
-
 def _speed_to_duty(speed: int) -> int:
-    """正規化速度（0–60）を PWM duty 値（0–4095）に変換する。
-
-    speed=20 → duty ≈ 1365
-    speed=60 → duty = 4095 (SPEED_FULL)
-    """
+    """正規化速度（0–60）を PWM duty 値（0–4095）に変換する。"""
     return max(0, min(4095, speed * 4095 // 60))
 
 
@@ -111,40 +100,28 @@ def _speed_to_duty(speed: int) -> int:
 # メイン処理                                                           #
 # ------------------------------------------------------------------ #
 
-def run(host: str, interval: float, dry_run: bool) -> None:
+def run(host: str, interval: float, duration: float, dry_run: bool) -> None:
     print(f"\n{'='*65}")
     print(f" Freenove Smart Car — 自律障害物回避デモ (車載側)")
-    print(f" ホスト: {host}  送信間隔: {interval}s  dry-run: {dry_run}")
+    print(f" ホスト: {host}  送信間隔: {interval}s  自動停止: {duration}s  dry-run: {dry_run}")
     print(f"{'='*65}\n")
 
-    # --- 各クライアント・プロデューサー・コンシューマーの初期化 ---
     if dry_run:
         telemetry_producer = None
         command_consumer = None
-        led = None
         motor = None
         print("[dry-run] Kafka・モーター接続をスキップします。ダミー値を出力します。\n")
     else:
         from producers.telemetry_producer import TelemetryProducer
         from consumers.command_consumer import CommandConsumer
-        from led_client import LEDClient
         from motor_client import MotorClient
 
         telemetry_producer = TelemetryProducer()
 
+        # MotorClient 1本だけ接続（超音波読み取りも兼用）
         motor = MotorClient(host)
         motor.connect()
 
-        led = LEDClient(host)
-        led.connect()
-        led.set_all(0, 128, 0)  # 起動時: 緑点灯（正常）
-
-        # ----------------------------------------------------------
-        # コマンドコールバック
-        # ----------------------------------------------------------
-        # バックグラウンドスレッドで呼ばれるため、motor 操作は
-        # スレッドセーフに行う。同時に複数コマンドが来ないよう
-        # ロックで保護する。
         _motor_lock = threading.Lock()
 
         def _handle_command(cmd: dict) -> None:
@@ -182,30 +159,45 @@ def run(host: str, interval: float, dry_run: bool) -> None:
         command_consumer = CommandConsumer(on_command=_handle_command)
         command_consumer.start()
 
-    # --- シグナルハンドラ ---
-    def _shutdown(sig, frame):
-        print("\n\n終了処理中...")
-        if command_consumer:
-            command_consumer.stop()
-        if motor:
-            motor.close()
-        if telemetry_producer:
-            telemetry_producer.close()
-        if led:
-            led.close()
+    # --- グレースフルシャットダウン ---
+    def _shutdown(reason: str) -> None:
+        print(f"\n\n[{reason}] 終了処理中...")
+        if not dry_run:
+            if command_consumer:
+                command_consumer.stop()
+            if motor:
+                motor.close()   # close() 内で stop() を呼ぶ
+            if telemetry_producer:
+                telemetry_producer.close()
         print("終了しました。")
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    def _sig_handler(sig, frame):
+        _shutdown("Ctrl+C")
+
+    signal.signal(signal.SIGINT, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
+
+    # --- 自動停止タイマー ---
+    _stop_event = threading.Event()
+
+    def _auto_stop():
+        _stop_event.wait(timeout=duration)
+        if not _stop_event.is_set():
+            print(f"\n⏱  {duration:.0f}秒経過 — 自動停止します")
+            _shutdown(f"{duration:.0f}s タイムアウト")
+
+    timer_thread = threading.Thread(target=_auto_stop, daemon=True)
+    timer_thread.start()
 
     # --- テレメトリ送信ループ ---
-    print(f"テレメトリ送信ループ開始（Ctrl+C で停止）")
+    print(f"テレメトリ送信ループ開始（{duration:.0f}秒後に自動停止 / Ctrl+C で即停止）")
     print(f"{'─'*65}")
     print(f"{'SEQ':>5}  {'超音波 (cm)':>12}  {'電池電圧 (V)':>13}  {'送信'}  {'時刻'}")
     print(f"{'─'*65}")
 
     seq = 0
+    start = time.monotonic()
     while True:
         seq += 1
 
@@ -214,15 +206,16 @@ def run(host: str, interval: float, dry_run: bool) -> None:
             battery    = _dummy_battery(seq)
             status     = "skip"
         else:
-            # 超音波は LEDClient の既存ソケット経由でサーバーから取得
-            ultrasonic = led.read_ultrasonic_cm()
+            # 超音波は MotorClient の同一ソケット経由で読み取る
+            ultrasonic = motor.read_ultrasonic_cm()
             battery    = _read_battery_voltage()
             status     = "sent"
 
         ts        = time.strftime("%H:%M:%S")
         ultra_str = f"{ultrasonic:6.1f}" if ultrasonic is not None else "   N/A"
         batt_str  = f"{battery:7.2f}"    if battery   is not None else "   N/A"
-        print(f"{seq:>5}  {ultra_str:>12}  {batt_str:>13}  {status:>4}  {ts}")
+        elapsed   = time.monotonic() - start
+        print(f"{seq:>5}  {ultra_str:>12}  {batt_str:>13}  {status:>4}  {ts}  [{elapsed:.0f}s/{duration:.0f}s]")
 
         if not dry_run and telemetry_producer:
             telemetry_producer.publish(
@@ -230,7 +223,11 @@ def run(host: str, interval: float, dry_run: bool) -> None:
                 battery_voltage=battery,
             )
 
-        time.sleep(interval)
+        # read_ultrasonic_cm が 0.55s ブロックするため、
+        # 残り待機時間だけ sleep する
+        elapsed_in_loop = time.monotonic() - start - (seq - 1) * interval
+        wait = max(0.0, interval - 0.55) if not dry_run else interval
+        time.sleep(wait)
 
 
 # ------------------------------------------------------------------ #
@@ -250,13 +247,22 @@ def main() -> None:
         help="テレメトリ送信間隔（秒、デフォルト: 0.5）",
     )
     parser.add_argument(
+        "--duration", "-d", type=float, default=30.0,
+        help="自動停止までの秒数（デフォルト: 30 秒）",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Kafka・モーター接続なしでダミー値を出力するだけ",
     )
     args = parser.parse_args()
 
     try:
-        run(host=args.host, interval=args.interval, dry_run=args.dry_run)
+        run(
+            host=args.host,
+            interval=args.interval,
+            duration=args.duration,
+            dry_run=args.dry_run,
+        )
     except KeyError as e:
         print(f"\n[エラー] 環境変数が未設定です: {e}")
         print("  my_car/.env.example を参考に my_car/.env を作成してください。")
