@@ -66,10 +66,7 @@ _RESET  = "\033[0m"
 _BOLD   = "\033[1m"
 
 # 前進速度（正規化スケール 0–60）
-# speed=5  → duty=341 → 実効 341×0.8=273（モーター最大の約7%）
-# speed=10 → duty=682 → 実効 682×0.8=546（約13%）
-# speed=20 → duty=1365 → 実効 1092（約27%）
-_FORWARD_SPEED = 5
+_FORWARD_SPEED = 20
 
 # 左回転時間 ms（約 90 度）
 _DEFAULT_TURN_DURATION_MS = 650
@@ -102,13 +99,12 @@ def _detect(
 def run(
     threshold: float,
     turn_duration_ms: int,
-    forward_speed: int,
     dry_run: bool,
 ) -> None:
     print(f"\n{'='*65}")
     print(f" Freenove Smart Car — 自律障害物回避デモ (制御サーバー側)")
     print(f" 障害物閾値: {threshold} cm  /  左回転時間: {turn_duration_ms} ms")
-    print(f" 前進速度: speed={forward_speed}  /  dry-run: {dry_run}")
+    print(f" 前進速度: speed={_FORWARD_SPEED}  /  dry-run: {dry_run}")
     print(f"{'='*65}\n")
 
     # --- Kafka Consumer / CommandProducer の初期化 ---
@@ -176,7 +172,7 @@ def run(
             else:
                 color = _GREEN
                 if should_send:
-                    action = f"▶  FORWARD (speed={forward_speed})"
+                    action = f"▶  FORWARD (speed={_FORWARD_SPEED})"
                 else:
                     action = f"   前進継続"
 
@@ -198,19 +194,19 @@ def run(
                     else:
                         print(
                             f"{_BOLD}  [dry-run] PUBLISH: direction=forward"
-                            f"  speed={forward_speed}{_RESET}"
+                            f"  speed={_FORWARD_SPEED}{_RESET}"
                         )
                 else:
                     if direction == "left":
                         command_producer.publish(
                             direction="left",
-                            speed=forward_speed,
+                            speed=_FORWARD_SPEED,
                             duration_ms=turn_duration_ms,
                         )
                     else:
                         command_producer.publish(
                             direction="forward",
-                            speed=forward_speed,
+                            speed=_FORWARD_SPEED,
                             duration_ms=0,
                         )
                 _last_direction = direction
@@ -243,11 +239,6 @@ def main() -> None:
         help=f"左回転持続時間 ms（デフォルト: {_DEFAULT_TURN_DURATION_MS}、約90度）",
     )
     parser.add_argument(
-        "--forward-speed", type=int, default=_FORWARD_SPEED,
-        dest="forward_speed",
-        help=f"前進速度 0–60 正規化（デフォルト: {_FORWARD_SPEED}）",
-    )
-    parser.add_argument(
         "--dry-run", action="store_true",
         help="コマンドを Kafka へ送信せず、ターミナルに表示するだけ",
     )
@@ -257,7 +248,6 @@ def main() -> None:
         run(
             threshold=args.threshold,
             turn_duration_ms=args.turn_duration_ms,
-            forward_speed=args.forward_speed,
             dry_run=args.dry_run,
         )
     except KeyError as e:
