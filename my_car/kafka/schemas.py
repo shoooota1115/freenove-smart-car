@@ -192,8 +192,40 @@ def build_alert_event(
 
 
 # ------------------------------------------------------------------
-# commands スキーマ（Consumer 側のバリデーション用）
+# commands スキーマ（Producer / Consumer 両用）
 # ------------------------------------------------------------------
+
+def build_command_event(
+    vehicle_id: str,
+    direction: str,
+    speed: int = 20,
+    duration_ms: int = 0,
+) -> dict[str, Any]:
+    """freenove.commands へ送信するペイロードを組み立てる。
+
+    Parameters
+    ----------
+    direction : str
+        "forward" | "backward" | "left" | "right" | "stop"
+    speed : int
+        正規化速度（0–60）。CommandConsumer 側の上限チェックに合わせる。
+    duration_ms : int
+        動作持続時間 ms。0 の場合は継続動作（stop コマンドで止める）。
+    """
+    return {
+        "schema_version": 1,
+        "command_id": f"cmd-{_new_id()}",
+        "vehicle_id": vehicle_id,
+        "timestamp": _utc_now(),
+        "command": "move",
+        "parameters": {
+            "direction": direction,
+            "speed": speed,
+            "duration_ms": duration_ms,
+        },
+    }
+
+
 
 def is_command_valid(cmd: dict[str, Any], vehicle_id: str) -> tuple[bool, str]:
     """受信コマンドの基本バリデーションを行う。

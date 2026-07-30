@@ -230,9 +230,121 @@ python demo_autonomous.py --host 192.168.1.100 --no-display
 
 ---
 
+## ⑤ Kafka モーターイベントデモ
+
+**ファイル:**
+- [`producers/motor_event_producer.py`](producers/motor_event_producer.py) — モーターコマンドを Kafka へ記録する Producer
+- [`demo_kafka.py`](demo_kafka.py) — 固定シーケンス走行 + Kafka イベント記録
+
+---
+
+## ⑥ リアルタイム異常検知デモ
+
+**ファイル:**
+- [`producers/alert_producer.py`](producers/alert_producer.py) — アラートイベント Producer
+- [`consumers/alert_consumer.py`](consumers/alert_consumer.py) — アラートイベント Consumer
+- [`led_client.py`](led_client.py) — LED 制御 TCP クライアント
+- [`demo_alert_car.py`](demo_alert_car.py) — デバイス側（テレメトリ送信 + アラート受信で LED 制御）
+- [`demo_alert_detector.py`](demo_alert_detector.py) — サーバー側（テレメトリ受信 → 閾値判定 → アラート発行）
+
+### データフロー
+
+```
+[Freenove センサー] → TelemetryProducer → freenove.telemetry
+freenove.telemetry → AlertDetector → freenove.alerts
+freenove.alerts → AlertConsumer → LEDClient → [Freenove LED]
+```
+
+### 実行方法
+
+```bash
+# Terminal 1: Raspberry Pi
+cd Code/Server && python main.py
+
+# Terminal 2: デバイス側（テレメトリ送信 + アラート受信）
+python my_car/demo_alert_car.py --host 192.168.1.24
+
+# Terminal 3: サーバー側（異常検知エンジン）
+python my_car/demo_alert_detector.py --obstacle-threshold 20 --battery-threshold 7.0
+
+# dry-run（Kafka 不要）
+python my_car/demo_alert_car.py --host 192.168.1.24 --dry-run
+python my_car/demo_alert_detector.py --dry-run
+```
+
+---
+
+## ⑦ 自律障害物回避デモ（Kafka サーバーサイド型）
+
+**ファイル:**
+- [`producers/command_producer.py`](producers/command_producer.py) — 移動コマンドを Kafka へ送信する Producer
+- [`consumers/command_consumer.py`](consumers/command_consumer.py) — 移動コマンドを受信する Consumer
+- [`demo_autonomous_car.py`](demo_autonomous_car.py) — 車載側（テレメトリ送信 + コマンド受信でモーター制御）
+- [`demo_autonomous_server.py`](demo_autonomous_server.py) — サーバー側（障害物判定 + コマンド送信）
+
+### データフロー
+
+```
+[超音波センサー] → TelemetryProducer → freenove.telemetry
+freenove.telemetry → 障害物判定 → CommandProducer → freenove.commands
+freenove.commands → CommandConsumer → MotorClient → [モーター]
+```
+
+### 回避動作仕様
+
+| 条件 | サーバー判定 | 車の動作 |
+|---|---|---|
+| 超音波 ≥ 30 cm（正常） | forward | 低速前進（duty ≈ 1365） |
+| 超音波 < 30 cm（障害物） | left | 左回転 650 ms（≒ 90 度）→ 停止 → 再判定 |
+
+### 衝突防止パラメータ
+
+| パラメータ | 値 | 理由 |
+|---|---|---|
+| テレメトリ間隔 | **0.5 秒** | 2 秒では間に合わないため高頻度化 |
+| 前進速度 | **speed=20**（duty ≈ 1365） | 低速で障害物検知後の制動余裕を確保 |
+| 障害物閾値 | **30 cm** | 0.5 秒 × 低速前進でも停止余裕あり |
+| 左回転時間 | **650 ms** | 4WD スキッドステアで約 90 度 |
+
+### 実行方法
+
+```bash
+# Terminal 1: Raspberry Pi
+cd Code/Server && python main.py
+
+# Terminal 2: 車載側（テレメトリ送信 + コマンド受信でモーター制御）
+python my_car/demo_autonomous_car.py --host 192.168.1.24
+
+# Terminal 3: サーバー側（障害物判定エンジン）
+python my_car/demo_autonomous_server.py
+
+# パラメータ調整（左回転時間を実機に合わせる）
+python my_car/demo_autonomous_server.py --threshold 35 --turn-duration 700
+
+# dry-run（Kafka・モーター接続なし）
+python my_car/demo_autonomous_car.py --host 192.168.1.24 --dry-run
+python my_car/demo_autonomous_server.py --dry-run
+```
+
+### Kafka トピック
+
+| トピック | 方向 | 用途 |
+|---|---|---|
+| `freenove.telemetry` | 車 → クラウド | 超音波センサー値の送信 |
+| `freenove.commands` | クラウド → 車 | 移動コマンド（forward / left）の送信 |
+
+### チューニングパラメータ（サーバー側）
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--threshold` | 30.0 cm | 障害物検知距離 |
+| `--turn-duration` | 650 ms | 左回転時間（実機で 90 度に調整） |
+
+---
+
 ## 今後の予定
 
 | ステップ | 内容 |
 |----------|------|
-| ⑤ Kafka 化 | コマンド・センサーデータの Kafka 配信 |
-| ⑥ World Model | 状態推定・経路計画の追加 |
+| ⑧ PhysicalAI 化 | サーバー側判定ロジックを AI モデルに差し替え |
+| ⑨ World Model | 状態推定・経路計画の追加 |
