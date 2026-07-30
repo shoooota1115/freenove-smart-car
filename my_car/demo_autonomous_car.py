@@ -245,8 +245,8 @@ def main() -> None:
         help="テレメトリ送信間隔（秒、デフォルト: 0.5）",
     )
     parser.add_argument(
-        "--duration", "-d", type=float, default=30.0,
-        help="自動停止までの秒数（デフォルト: 30 秒）",
+        "--duration", "-d", type=float, default=60.0,
+        help="自動停止までの秒数（デフォルト: 60 秒）",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

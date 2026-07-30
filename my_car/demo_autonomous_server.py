@@ -230,8 +230,8 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument(
-        "--threshold", type=float, default=30.0,
-        help="障害物検知閾値 cm（デフォルト: 30.0）",
+        "--threshold", type=float, default=40.0,
+        help="障害物検知閾値 cm（デフォルト: 40.0）",
     )
     parser.add_argument(
         "--turn-duration", type=int, default=_DEFAULT_TURN_DURATION_MS,
