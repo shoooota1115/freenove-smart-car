@@ -68,6 +68,12 @@ _BOLD   = "\033[1m"
 # 前進速度（正規化スケール 0–60）
 _FORWARD_SPEED = 20
 
+# 左回転速度（前進より低くして電流スパイクを抑える）
+# 4輪スキッドステアは前進の約2倍の電流が流れるため、
+# リチウムイオン電池稼働時の瞬間電圧降下によるラズパイ落ちを防ぐ
+# speed=10 → duty=682 → 実効 682×0.8=546（最大の約13%）
+_TURN_SPEED = 10
+
 # 左回転時間 ms（約 90 度）
 _DEFAULT_TURN_DURATION_MS = 650
 
@@ -200,13 +206,13 @@ def run(
                     if direction == "left":
                         command_producer.publish(
                             direction="left",
-                            speed=_FORWARD_SPEED,
+                            speed=_TURN_SPEED,
                             duration_ms=turn_duration_ms,
                         )
                     else:
                         command_producer.publish(
                             direction="forward",
-                            speed=_FORWARD_SPEED,
+                            speed=forward_speed,
                             duration_ms=0,
                         )
                 _last_direction = direction
