@@ -63,6 +63,9 @@ def create_producer() -> Producer:
             "compression.type": "snappy",
             # Producer バッファ上限（メモリ保護）
             "queue.buffering.max.messages": 10_000,
+            # librdkafka の内部 INFO ログを stderr に出さない
+            # （idempotence PID 取得リトライ等のノイズを抑制）
+            "log_level": 3,
         }
     )
     return Producer(cfg)
